@@ -9,8 +9,8 @@ test("renders sheet 57 screw and washer with proper text sizing and image border
     title: "Sheet 57 Screw and Washer",
   })
 
-  // 1. Header text should have scaled font size 20 (25 * 0.8)
-  expect(svg).toContain('font-size="20"')
+  // 1. Header text should have document font size 25
+  expect(svg).toContain('font-size="25"')
   expect(svg).toContain(">SCREW &amp; WASHER FOR PCIe M.2</text>")
 
   // 2. Washer image should have a border rect with #800000 (Color=128)

@@ -15,8 +15,6 @@ export type SchematicFont = {
   size: number
 }
 
-export const SCHEMATIC_FONT_SIZE_SCALE = 0.8
-
 export function getSchematicFont({
   fallbackSize,
   fontIdFieldName = "FONTID",
@@ -27,12 +25,8 @@ export function getSchematicFont({
     Math.round(Number(record.getCaseInsensitive(fontIdFieldName) ?? 1)),
     1,
   )
-  const rawSize = Math.max(
-    Number(sheetRecord?.getCaseInsensitive(`SIZE${fontId}`) ?? fallbackSize),
-    1,
-  )
   const size = Math.max(
-    Math.round(rawSize * SCHEMATIC_FONT_SIZE_SCALE * 100) / 100,
+    Number(sheetRecord?.getCaseInsensitive(`SIZE${fontId}`) ?? fallbackSize),
     1,
   )
   const family =
