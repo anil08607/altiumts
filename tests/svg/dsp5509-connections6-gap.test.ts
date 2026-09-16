@@ -1,8 +1,5 @@
 import { expect, test } from "bun:test"
-import {
-  parseAltiumBinaryPcbDoc,
-  serializeAltiumPcbToSvg,
-} from "../../lib"
+import { parseAltiumBinaryPcbDoc, serializeAltiumPcbToSvg } from "../../lib"
 import { readReferenceBytes } from "./read-reference"
 
 /**
