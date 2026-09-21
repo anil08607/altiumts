@@ -51,6 +51,7 @@ export function renderPcbRecord({
   }
 
   if (kind === "Arc") {
+    const isKeepout = record.getBoolean("KEEPOUT") === true
     const center = {
       x: getPcbMeasurement(record, "LOCATION.X"),
       y: getPcbMeasurement(record, "LOCATION.Y"),
@@ -65,7 +66,9 @@ export function renderPcbRecord({
       endAngleDegrees: endAngle,
     })
     const width = Math.max(getPcbMeasurement(record, "WIDTH", 4), 0.5)
-    return `<polyline ${metadata} points="${pointsToSvg(points, viewport)}" fill="none" stroke="${color}" stroke-width="${formatSvgNumber(width)}"/>`
+    const strokeColor = isKeepout ? getPcbLayerColor("KEEPOUT") : color
+    const keepoutMetadata = isKeepout ? ' data-keepout="true"' : ""
+    return `<polyline ${metadata}${keepoutMetadata} points="${pointsToSvg(points, viewport)}" fill="none" stroke="${strokeColor}" stroke-width="${formatSvgNumber(width)}"/>`
   }
 
   if (kind === "Dimension") {
