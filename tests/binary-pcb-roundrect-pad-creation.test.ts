@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test"
 import {
+  AltiumPadRecord,
+  getAltiumPcbPadGeometry,
   parseAltiumBinaryPcbDoc,
   serializeAltiumPcbDocToBinary,
   serializeAltiumPcbToSvg,
@@ -24,6 +26,41 @@ test("serializes rounded-rectangle pad stack metadata", () => {
     "ROUNDRECT",
   )
   expect(document.pads[1]?.getNumber("LAYER31CORNERRADIUS")).toBe(50)
+
+  const topPad = document.pads[0]
+  const bottomPad = document.pads[1]
+  if (
+    !(topPad instanceof AltiumPadRecord) ||
+    !(bottomPad instanceof AltiumPadRecord)
+  ) {
+    throw new Error("Expected two serialized pads")
+  }
+  const topGeometry = getAltiumPcbPadGeometry({
+    record: topPad,
+    requestedLayers: ["TOP"],
+  })
+  const bottomGeometry = getAltiumPcbPadGeometry({
+    record: bottomPad,
+    requestedLayers: ["BOTTOM"],
+  })
+  expect(topGeometry).toMatchObject({
+    ccwRotationDegrees: 0,
+    cornerRadiusMils: 20,
+    heightMils: 40,
+    holeCcwRotationDegrees: 0,
+    layerOrdinal: 0,
+    shape: "ROUNDRECT",
+    widthMils: 80,
+  })
+  expect(bottomGeometry).toMatchObject({
+    ccwRotationDegrees: 0,
+    cornerRadiusMils: 10,
+    heightMils: 40,
+    holeCcwRotationDegrees: 0,
+    layerOrdinal: 31,
+    shape: "ROUNDRECT",
+    widthMils: 80,
+  })
 
   expect(serializeAltiumPcbToSvg(document, { layers: ["TOP"] })).toContain(
     'data-pad-shape="ROUNDRECT"',

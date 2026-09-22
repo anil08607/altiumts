@@ -1,14 +1,16 @@
 import type { AltiumPcbDocument } from "../altium-pcb-document"
 import { getPcbComponentByIndex } from "../pcb-reference-resolution"
+import { getAltiumPcbPadGeometry } from "../pcbPadGeometry"
+import { AltiumPadRecord } from "../records/altium-pad-record"
 import type { AltiumRecord } from "../records/altium-record"
 import {
   getPcbMeasurement,
   getPcbVertexPoints,
   parsePcbMeasurement,
 } from "./altium-values"
+import { getRotatedRectangleBounds } from "./getRotatedRectangleBounds"
 import { getPcbDimensionGeometry } from "./pcb-dimension-geometry"
 import { normalizeLayerName } from "./pcb-layer"
-import { getPcbPadGeometry } from "./pcb-pad-geometry"
 import type { SvgBounds, SvgPoint } from "./svg-types"
 import { boundsFromPoints, expandBounds, mergeBounds } from "./svg-utils"
 
@@ -135,23 +137,14 @@ export function getPcbRecordBounds(
     return bounds && width > 0 ? expandBounds(bounds, width / 2) : bounds
   }
 
-  if (kind === "Pad") {
-    const geometry = getPcbPadGeometry(record, requestedLayers)
-    const rotation = (geometry.rotation * Math.PI) / 180
-    const halfWidth = geometry.width / 2
-    const halfHeight = geometry.height / 2
-    const extentX =
-      Math.abs(Math.cos(rotation)) * halfWidth +
-      Math.abs(Math.sin(rotation)) * halfHeight
-    const extentY =
-      Math.abs(Math.sin(rotation)) * halfWidth +
-      Math.abs(Math.cos(rotation)) * halfHeight
-    return {
-      minX: geometry.x - extentX,
-      minY: geometry.y - extentY,
-      maxX: geometry.x + extentX,
-      maxY: geometry.y + extentY,
-    }
+  if (record instanceof AltiumPadRecord) {
+    const geometry = getAltiumPcbPadGeometry({ record, requestedLayers })
+    return getRotatedRectangleBounds({
+      center: { x: geometry.xMils, y: geometry.yMils },
+      width: geometry.widthMils,
+      height: geometry.heightMils,
+      ccwRotationDegrees: geometry.ccwRotationDegrees,
+    })
   }
 
   if (kind === "Via") {
@@ -206,22 +199,12 @@ export function getPcbRecordBounds(
     const y2 = getPcbMeasurement(record, "Y2")
     const centerX = (x1 + x2) / 2
     const centerY = (y1 + y2) / 2
-    const halfWidth = Math.abs(x2 - x1) / 2
-    const halfHeight = Math.abs(y2 - y1) / 2
-    const rotation =
-      (Number(record.getCaseInsensitive("ROTATION") ?? 0) * Math.PI) / 180
-    const extentX =
-      Math.abs(Math.cos(rotation)) * halfWidth +
-      Math.abs(Math.sin(rotation)) * halfHeight
-    const extentY =
-      Math.abs(Math.sin(rotation)) * halfWidth +
-      Math.abs(Math.cos(rotation)) * halfHeight
-    return {
-      minX: centerX - extentX,
-      minY: centerY - extentY,
-      maxX: centerX + extentX,
-      maxY: centerY + extentY,
-    }
+    return getRotatedRectangleBounds({
+      center: { x: centerX, y: centerY },
+      width: Math.abs(x2 - x1),
+      height: Math.abs(y2 - y1),
+      ccwRotationDegrees: Number(record.getCaseInsensitive("ROTATION") ?? 0),
+    })
   }
 
   return undefined
