@@ -4,7 +4,6 @@ import type { AltiumRecord } from "./records/altium-record"
 import {
   type AltiumSchComponentRecord,
   type AltiumSchematicRecord,
-  AltiumSchLabelRecord,
   AltiumSchNetLabelRecord,
   AltiumSchPinRecord,
   AltiumSchPortRecord,
@@ -140,7 +139,6 @@ export class AltiumSchematicNetGraph {
 
     const positionedRecords: AltiumSchematicRecord[] = [
       ...document.pins,
-      ...document.labels,
       ...document.netLabels,
       ...document.ports,
       ...document.powerPorts,
@@ -305,7 +303,6 @@ export function getSchematicRecordPoints(record: AltiumRecord): AltiumPoint[] {
 function getSchematicNetName(record: AltiumRecord): string | undefined {
   if (
     record instanceof AltiumSchNetLabelRecord ||
-    record instanceof AltiumSchLabelRecord ||
     record instanceof AltiumSchPowerPortRecord
   ) {
     return record.getDecoded("TEXT")

@@ -78,10 +78,15 @@ test("models schematic ownership and named electrical connectivity", async () =>
   expect(document.wires).toHaveLength(146)
   expect(document.ports).toHaveLength(91)
   expect(document.index.getOwnershipCycles()).toEqual([])
-  expect(document.netGraph.nets).toHaveLength(314)
+  expect(document.netGraph.nets).toHaveLength(298)
   expect(
     document.netGraph.nets.filter((net) => net.names.length > 0),
-  ).toHaveLength(59)
+  ).toHaveLength(43)
+  expect(
+    document.labels.every(
+      (label) => document.netGraph.getNetForRecord(label) === undefined,
+    ),
+  ).toBeTrue()
 
   const component = document.components.find(
     (candidate) => document.netGraph.getPinsForComponent(candidate).length > 0,
