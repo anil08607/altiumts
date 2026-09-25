@@ -76,7 +76,7 @@ export class AltiumSchPinRecord extends AltiumSchematicRecord {
       this.getCaseInsensitive("PINLENGTH_FRAC") === undefined
     )
       return undefined
-    return getSchematicCoordinate(this, "PINLENGTH", 10)
+    return getSchematicCoordinate(this, { key: "PINLENGTH", fallback: 10 })
   }
 }
 export class AltiumSchLabelRecord extends AltiumSchematicRecord {

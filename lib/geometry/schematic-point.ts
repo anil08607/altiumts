@@ -14,7 +14,7 @@ export function getSchematicPoint(
   )
     return undefined
   return {
-    x: getSchematicCoordinate(record, xKey),
-    y: getSchematicCoordinate(record, yKey),
+    x: getSchematicCoordinate(record, { key: xKey }),
+    y: getSchematicCoordinate(record, { key: yKey }),
   }
 }

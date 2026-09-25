@@ -103,7 +103,9 @@ test.each(["1.5", "1e2", "NaN", "Infinity", "9007199254740992", ""])(
     ])
     const label = parsed.labels[0]
     assert(label)
-    expect(getSchematicCoordinate(label, "LOCATION.X", 5)).toBe(4.92)
+    expect(
+      getSchematicCoordinate(label, { key: "LOCATION.X", fallback: 5 }),
+    ).toBe(4.92)
     expect(parsed.labels[0]?.position).toEqual({ x: -0.08, y: 10 })
   },
 )
