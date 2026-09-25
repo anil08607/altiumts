@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test"
+import assert from "node:assert/strict"
 import {
   getSchematicCoordinate,
   getSchematicRecordPoints,
@@ -22,11 +23,13 @@ test.each([
     ]
     const parsed = document(records)
     expect(parsed.labels[0]?.position).toEqual({ x: expected, y: 20 })
-    expect(getSchematicRecordPoints(parsed.records[2]!)[0]).toEqual({
+    const polyline = parsed.records[2]
+    assert(polyline)
+    expect(getSchematicRecordPoints(polyline)[0]).toEqual({
       x: expected,
       y: 20,
     })
-    const ascii = ["|RECORD=31", ...records].join("\r\n") + "\r\n"
+    const ascii = `${["|RECORD=31", ...records].join("\r\n")}\r\n`
     const textDocument = parseAltiumSchDoc(ascii)
     expect(textDocument.labels[0]?.position).toEqual({ x: expected, y: 20 })
     expect(textDocument.getString()).toBe(ascii)
@@ -39,7 +42,9 @@ test("typed geometry and native SVG agree on short fractions and malformed field
     "|RECORD=4|LOCATION.X=258.8|LOCATION.Y=50|TEXT=bad coordinate",
   ]
   const parsed = document(records)
-  expect(getSchematicRecordPoints(parsed.records[1]!)).toEqual([
+  const polygon = parsed.records[1]
+  assert(polygon)
+  expect(getSchematicRecordPoints(polygon)).toEqual([
     { x: 258.08, y: 10 },
     { x: 0, y: 20 },
     { x: -2.08, y: 30 },
@@ -59,13 +64,16 @@ test("omitted axes default to zero without inventing absent positions", () => {
     { x: -0.08, y: 0 },
     undefined,
   ])
-  expect(getSchematicRecordPoints(parsed.records[3]!)).toEqual([
+  const countedPolyline = parsed.records[3]
+  const uncountedPolyline = parsed.records[4]
+  assert(countedPolyline && uncountedPolyline)
+  expect(getSchematicRecordPoints(countedPolyline)).toEqual([
     { x: 0, y: 10 },
     { x: 20, y: 0 },
     { x: 0.00005, y: -0.08 },
     { x: 0, y: 0 },
   ])
-  expect(getSchematicRecordPoints(parsed.records[4]!)).toEqual([
+  expect(getSchematicRecordPoints(uncountedPolyline)).toEqual([
     { x: -0.08, y: 0 },
     { x: 0, y: 20 },
   ])
@@ -93,9 +101,9 @@ test.each(["1.5", "1e2", "NaN", "Infinity", "9007199254740992", ""])(
     const parsed = document([
       `|RECORD=4|LOCATION.X=${raw}|LOCATION.X_FRAC=-8000|LOCATION.Y=10|LOCATION.Y_FRAC=${raw}`,
     ])
-    expect(getSchematicCoordinate(parsed.labels[0]!, "LOCATION.X", 5)).toBe(
-      4.92,
-    )
+    const label = parsed.labels[0]
+    assert(label)
+    expect(getSchematicCoordinate(label, "LOCATION.X", 5)).toBe(4.92)
     expect(parsed.labels[0]?.position).toEqual({ x: -0.08, y: 10 })
   },
 )
@@ -105,10 +113,11 @@ test("electrically equivalent signed coordinates connect in the typed net graph"
     "|RECORD=27|LOCATIONCOUNT=2|X1=0|Y1=10|X2=10|X2_FRAC=8000|Y2=10",
     "|RECORD=25|LOCATION.X=11|LOCATION.X_FRAC=-92000|LOCATION.Y=10|TEXT=SIGNAL",
   ])
-  expect(parsed.netGraph.getNetForRecord(parsed.wires[0]!)?.names).toEqual([
-    "SIGNAL",
-  ])
-  expect(parsed.netGraph.getNetForRecord(parsed.netLabels[0]!)).toBe(
-    parsed.netGraph.getNetForRecord(parsed.wires[0]!),
+  const wire = parsed.wires[0]
+  const label = parsed.netLabels[0]
+  assert(wire && label)
+  expect(parsed.netGraph.getNetForRecord(wire)?.names).toEqual(["SIGNAL"])
+  expect(parsed.netGraph.getNetForRecord(label)).toBe(
+    parsed.netGraph.getNetForRecord(wire),
   )
 })
