@@ -15,6 +15,7 @@ import {
   readSchematicInteger,
 } from "./altium-values"
 import { getSchematicFont } from "./get-schematic-font"
+import { getSchematicGraphicRightEdge } from "./get-schematic-graphic-right-edge"
 import {
   getSchematicConnectionSegments,
   getSchematicPortDirection,
@@ -41,6 +42,7 @@ import {
   createSvgViewport,
   escapeXml,
   formatSvgNumber,
+  getSvgHairlineWidth,
   pointsToSvg,
 } from "./svg-utils"
 
@@ -185,11 +187,14 @@ function renderSchematicRecord(
     ["5", "6", "7", "8", "10", "11", "12", "13", "14", "27", "37"].includes(
       kind ?? "",
     )
-  const metadata = `data-record="${escapeXml(kind ?? "Unknown")}"${hairline ? ' vector-effect="non-scaling-stroke"' : ""}`
+  const metadata = `data-record="${escapeXml(kind ?? "Unknown")}"`
   // TSize widths are 0 (device hairline), 10, 30 and 50 mils. Bus widths
   // use their own 20/30/50/70-mil table. One schematic unit is 10 mils.
-  const lineWidth =
-    (kind === "26" ? [2, 3, 5, 7] : [1, 1, 3, 5])[widthEnum] ?? 1
+  // Resolve device hairlines at export time. Depending on vector-effect alone
+  // makes rasterizers such as resvg scale them with the document coordinates.
+  const lineWidth = hairline
+    ? getSvgHairlineWidth(viewport)
+    : ((kind === "26" ? [2, 3, 5, 7] : [1, 1, 3, 5])[widthEnum] ?? 1)
 
   if (kind === "5") {
     const points = getSchematicIndexedPoints(record)
@@ -302,6 +307,7 @@ function renderSchematicRecord(
       ? context.document?.getObjectDefinitionGraphics(definitionId)
       : undefined
     let customSymbol: string | undefined
+    let customSymbolRightEdge: number | undefined
     if (graphics !== undefined && context.document) {
       const location = getSchematicLocation(record)
       const definitionContext: SchematicRenderContext = {
@@ -311,7 +317,7 @@ function renderSchematicRecord(
         ),
         sheetRecord: context.sheetRecord,
       }
-      const content = graphics
+      const visibleGraphics = graphics
         .filter((child) =>
           ["5", "6", "7", "8", "10", "11", "12", "13", "14"].includes(
             child.recordKind ?? "",
@@ -320,6 +326,13 @@ function renderSchematicRecord(
         .filter((child) =>
           shouldRenderSchematicRecord(child, definitionContext),
         )
+      if (visibleGraphics.length > 0) {
+        customSymbolRightEdge = Math.max(
+          0,
+          ...visibleGraphics.map(getSchematicGraphicRightEdge),
+        )
+      }
+      const content = visibleGraphics
         .map(
           (child) =>
             renderSchematicRecord(
@@ -339,6 +352,7 @@ function renderSchematicRecord(
       color,
       context.sheetRecord,
       customSymbol,
+      customSymbolRightEdge,
     )
   }
 
@@ -623,13 +637,18 @@ function renderSchematicPin(
       record.getCaseInsensitive(`PIN${kind}_POSITIONCONGLOMERATE`),
       0,
     )
+    const customMargin = getSchematicCoordinate(record, {
+      key: `${kind}_CUSTOMPOSITION_MARGIN`,
+      fallback: 0,
+    })
+    // Native name margins increase the 2-unit inward gap. Designator margins
+    // measure outward from the body; the two fields use opposite directions.
     return {
       margin:
         (flags & 1) !== 0
-          ? getSchematicCoordinate(record, {
-              key: `${kind}_CUSTOMPOSITION_MARGIN`,
-              fallback: 0,
-            })
+          ? kind === "NAME"
+            ? -2 - customMargin
+            : customMargin
           : kind === "NAME"
             ? -7
             : 9,
@@ -711,6 +730,7 @@ function renderSchematicPowerPort(
   color: string,
   sheetRecord: AltiumSchSheetRecord | undefined,
   customSymbol?: string,
+  customSymbolRightEdge?: number,
 ): string {
   const location = getSchematicLocation(record)
   const origin = {
@@ -753,7 +773,14 @@ function renderSchematicPowerPort(
     labelDistance = 14
   }
 
-  if (customSymbol !== undefined) symbol = customSymbol
+  if (customSymbol !== undefined) {
+    symbol = customSymbol
+    // Native custom power labels follow the graphics, with a 2-unit gap.
+    // STYLE describes the fallback symbol, not the custom definition's size.
+    if (customSymbolRightEdge !== undefined) {
+      labelDistance = customSymbolRightEdge + 2
+    }
+  }
 
   const text = record.getDecoded("TEXT") ?? record.getDecoded("NAME") ?? ""
   const showNetName = record.getBoolean("SHOWNETNAME") !== false
