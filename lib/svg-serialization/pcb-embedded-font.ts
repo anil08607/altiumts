@@ -5,6 +5,11 @@ import type { AltiumPcbDocument } from "../altium-pcb-document"
 import type { AltiumRecord } from "../records/altium-record"
 import type { PcbTextPositioning } from "./pcb-text-positioning"
 
+// Limits apply per text record, before building the combined glyph outline.
+const MAX_TEXT_LENGTH = 4096
+const MAX_PATH_COMMANDS = 32_768
+const MAX_PATH_LENGTH = 512 * 1024
+
 const documentFonts = new WeakMap<
   AltiumPcbDocument,
   readonly AltiumEmbeddedFont[]
@@ -37,7 +42,8 @@ export function getPcbEmbeddedFont(
       (font.name.toLowerCase() === name ||
         font.family.toLowerCase() === name) &&
       font.bold === (record.getBoolean("BOLD") === true) &&
-      font.italic === (record.getBoolean("ITALIC") === true),
+      font.italic === (record.getBoolean("ITALIC") === true) &&
+      getParsedFont(font) !== null,
   )
 }
 
@@ -60,13 +66,8 @@ export function getPcbEmbeddedTextPath({
   }
 }): string | undefined {
   try {
-    let font = parsedFonts.get(embeddedFont)
-    if (font === undefined) {
-      // Cache failure as well as success: a broken font can be used by many records.
-      parsedFonts.set(embeddedFont, null)
-      font = opentype.parse(embeddedFont.getDecompressedBytes().buffer)
-      parsedFonts.set(embeddedFont, font)
-    }
+    if (text.length > MAX_TEXT_LENGTH) return undefined
+    const font = getParsedFont(embeddedFont)
     if (!font) return undefined
     const lines = text.split("\n")
     if (
@@ -75,10 +76,24 @@ export function getPcbEmbeddedTextPath({
       )
     )
       return undefined
+    let commandCount = 0
+    for (const line of lines) {
+      for (const glyph of font.stringToGlyphs(line)) {
+        commandCount += glyph.path.commands.length
+        if (commandCount > MAX_PATH_COMMANDS) return undefined
+      }
+    }
     const ascent = Number(font.tables.os2?.usWinAscent ?? font.ascender)
     const descent = Number(font.tables.os2?.usWinDescent ?? -font.descender)
     if (
-      ![ascent, descent, font.unitsPerEm, height].every(Number.isFinite) ||
+      ![
+        ascent,
+        descent,
+        font.unitsPerEm,
+        height,
+        lineHeight,
+        positioning.y,
+      ].every(Number.isFinite) ||
       ascent <= 0 ||
       descent < 0 ||
       font.unitsPerEm <= 0 ||
@@ -97,7 +112,10 @@ export function getPcbEmbeddedTextPath({
           : positioning.baseline === "central"
             ? ((ascent - descent) * scale) / 2
             : -descent * scale)
-    const paths = lines.map((line, index) => {
+    const paths: string[] = []
+    let pathLength = 0
+    let renderedCommandCount = 0
+    for (const [index, line] of lines.entries()) {
       const advance = font.getAdvanceWidth(line, fontSize)
       const x =
         positioning.anchor === "middle"
@@ -105,14 +123,37 @@ export function getPcbEmbeddedTextPath({
           : positioning.anchor === "end"
             ? -advance
             : 0
-      return font
-        .getPath(line, x, baseline + index * lineHeight, fontSize)
-        .toPathData(4)
-    })
+      const glyphPath = font.getPath(
+        line,
+        x,
+        baseline + index * lineHeight,
+        fontSize,
+      )
+      renderedCommandCount += glyphPath.commands.length
+      if (renderedCommandCount > MAX_PATH_COMMANDS) return undefined
+      const path = glyphPath.toPathData(4)
+      pathLength += path.length + (index === 0 ? 0 : 1)
+      if (pathLength > MAX_PATH_LENGTH) return undefined
+      paths.push(path)
+    }
     const path = paths.join(" ")
     return /NaN|Infinity/u.test(path) ? undefined : path
   } catch {
     // Unsupported fonts/glyphs retain the existing system-font fallback.
     return undefined
   }
+}
+
+function getParsedFont(embeddedFont: AltiumEmbeddedFont): Font | null {
+  const cachedFont = parsedFonts.get(embeddedFont)
+  if (cachedFont !== undefined) return cachedFont
+  let font: Font | null
+  try {
+    font = opentype.parse(embeddedFont.getDecompressedBytes().buffer)
+  } catch {
+    // Cache only font parsing failures, not per-text limits or missing glyphs.
+    font = null
+  }
+  parsedFonts.set(embeddedFont, font)
+  return font
 }

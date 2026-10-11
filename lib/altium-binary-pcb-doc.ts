@@ -75,7 +75,10 @@ export class AltiumBinaryPcbDoc extends AltiumNode {
             ).getUint32(0, true)
           : undefined
       this.parsedEmbeddedFonts = fontStream
-        ? parseAltiumEmbeddedFonts(fontStream.content, expectedCount)
+        ? parseAltiumEmbeddedFonts(fontStream.content, {
+            expectedCount,
+            tolerateInvalidRecords: true,
+          })
         : []
       this.adoptChildren(this.parsedEmbeddedFonts)
     }

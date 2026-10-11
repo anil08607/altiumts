@@ -15,7 +15,10 @@ import {
   addAltiumBinarySection,
   writeAltiumCompoundFile,
 } from "../lib/serialization/altium-binary-container"
-import { getPcbEmbeddedFont } from "../lib/svg-serialization/pcb-embedded-font"
+import {
+  getPcbEmbeddedFont,
+  getPcbEmbeddedTextPath,
+} from "../lib/svg-serialization/pcb-embedded-font"
 import { readReferenceBytes } from "./svg/read-reference"
 
 test("reads Elk Pi embedded font metadata without changing the original PCB bytes", async () => {
@@ -170,16 +173,26 @@ test("rejects truncated font records, invalid UTF-16 lengths, oversized names, a
     compressedBytes: zlibSync(Uint8Array.of(1, 2, 3)),
   })
   expect(() => parseAltiumEmbeddedFonts(record.slice(0, -1))).toThrow()
-  expect(() => parseAltiumEmbeddedFonts(record, 2)).toThrow(
+  expect(() => parseAltiumEmbeddedFonts(record, { expectedCount: 2 })).toThrow(
     AltiumCorruptContainerError,
   )
-  expect(() => parseAltiumEmbeddedFonts(Uint8Array.of(1, 0, 0, 0, 65))).toThrow(
+  const nameLength = new DataView(record.buffer, record.byteOffset).getUint32(
+    0,
+    true,
+  )
+  const oddNameRecord = new AltiumBinaryWriter()
+    .uint32LengthPrefixedBytes(record.subarray(4, 4 + nameLength - 1))
+    .writeBytes(record.subarray(4 + nameLength))
+    .toUint8Array()
+  expect(() => parseAltiumEmbeddedFonts(oddNameRecord)).toThrow(
     AltiumCorruptContainerError,
   )
   expect(() =>
     parseAltiumEmbeddedFonts(Uint8Array.of(255, 255, 255, 255)),
   ).toThrow()
-  expect(parseAltiumEmbeddedFonts(new Uint8Array(), 0)).toEqual([])
+  expect(
+    parseAltiumEmbeddedFonts(new Uint8Array(), { expectedCount: 0 }),
+  ).toEqual([])
 })
 
 test("bounds embedded font decompression and rejects empty or truncated zlib streams", () => {
@@ -214,18 +227,96 @@ test("bounds embedded font decompression and rejects empty or truncated zlib str
   }
 })
 
+test("retains valid fonts around recoverable metadata errors and before truncated tails", () => {
+  const invalidName = fontRecord({
+    familyName: "\ud800",
+    compressedBytes: zlibSync(Uint8Array.of(1, 2, 3)),
+  })
+  for (const options of [
+    { prefixFontRecords: [invalidName] },
+    { trailingFontBytes: Uint8Array.of(255, 255, 255, 255) },
+    { expectedFontCount: 2 },
+  ]) {
+    const document = makeFontDocument(options)
+    const originalBytes = document.getBytes()
+    expect(serializeAltiumPcbToSvg(document)).toContain(
+      'data-font-source="embedded"',
+    )
+    expect(document.embeddedFonts).toHaveLength(1)
+    expect(document.embeddedFonts[0]?.sourceLocation?.recordIndex).toBe(
+      options.prefixFontRecords?.length ?? 0,
+    )
+    expect(document.isDirty).toBeFalse()
+    expect(document.getBytes()).toEqual(originalBytes)
+  }
+})
+
+test("a corrupt matching font does not shadow a later valid font", () => {
+  const document = makeFontDocument({
+    prefixFontRecords: [
+      fontRecord({ compressedBytes: zlibSync(Uint8Array.of(1, 2, 3)) }),
+    ],
+  })
+  const originalBytes = document.getBytes()
+  expect(serializeAltiumPcbToSvg(document)).toContain(
+    'data-font-source="embedded"',
+  )
+  expect(document.getBytes()).toEqual(originalBytes)
+})
+
+test("falls back before expanding long text or repeated complex glyphs", () => {
+  for (const { text, glyphSegmentCount } of [
+    { text: "a".repeat(5000), glyphSegmentCount: 0 },
+    { text: "a".repeat(64), glyphSegmentCount: 1024 },
+    { text: Array(4).fill("a".repeat(16)).join("\n"), glyphSegmentCount: 1024 },
+  ]) {
+    const document = makeFontDocument({ glyphSegmentCount, text })
+    const originalBytes = document.getBytes()
+    const svg = serializeAltiumPcbToSvg(document)
+    expect(svg).not.toContain('data-font-source="embedded"')
+    expect(svg).toContain('data-record="Text"')
+    expect(svg.length).toBeLessThan(text.length + 3000)
+    expect(document.getBytes()).toEqual(originalBytes)
+    document.texts[0]!.set("WIDESTRING", "97")
+    expect(serializeAltiumPcbToSvg(document)).toContain(
+      'data-font-source="embedded"',
+    )
+  }
+})
+
+test("bounds serialized glyph coordinates as well as command counts", () => {
+  const document = makeFontDocument({ glyphSegmentCount: 1024 })
+  const embeddedFont = getPcbEmbeddedFont(document, document.texts[0]!)!
+  const path = getPcbEmbeddedTextPath({
+    embeddedFont,
+    text: "a".repeat(24),
+    height: Number.MAX_SAFE_INTEGER,
+    lineHeight: 100,
+    positioning: { anchor: "start", baseline: "alphabetic", y: 0 },
+  })
+  expect(path).toBeUndefined()
+})
+
 function makeFontDocument(
   options: {
     bold?: boolean
     italic?: boolean
     familyName?: string
     compressedBytes?: Uint8Array
+    prefixFontRecords?: Uint8Array[]
+    trailingFontBytes?: Uint8Array
+    expectedFontCount?: number
+    glyphSegmentCount?: number
+    text?: string
   } = {},
 ) {
   const path = new Path()
   path.moveTo(0, 0)
   path.lineTo(600, 0)
   path.lineTo(300, 800)
+  for (let index = 0; index < (options.glyphSegmentCount ?? 0); index++) {
+    path.lineTo(index % 600, (index % 2) * 800)
+  }
   path.close()
   const font = new Font({
     familyName: options.familyName ?? "Test Symbols",
@@ -245,22 +336,27 @@ function makeFontDocument(
   const bytes = serializeAltiumPcbDocToBinary(
     [
       "|RECORD=Board|KIND0=0|VX0=0mil|VY0=0mil|KIND1=0|VX1=1000mil|VY1=0mil|KIND2=0|VX2=1000mil|VY2=1000mil",
-      `|RECORD=Text|LAYER=TOPOVERLAY|X=200mil|Y=200mil|HEIGHT=100mil|TEXT=a|FONTNAME=${options.familyName ?? "test symbols"}|USETTFONTS=TRUE|JUSTIFICATION=3|ROTATION=90|MIRROR=TRUE|BOLD=${options.bold ? "TRUE" : "FALSE"}|ITALIC=${options.italic ? "TRUE" : "FALSE"}`,
+      `|RECORD=Text|LAYER=TOPOVERLAY|X=200mil|Y=200mil|HEIGHT=100mil|TEXT=a|WIDESTRING=${Array.from(options.text ?? "a", (character) => character.charCodeAt(0)).join(",")}|FONTNAME=${options.familyName ?? "test symbols"}|USETTFONTS=TRUE|JUSTIFICATION=3|ROTATION=90|MIRROR=TRUE|BOLD=${options.bold ? "TRUE" : "FALSE"}|ITALIC=${options.italic ? "TRUE" : "FALSE"}`,
     ].join("\r\n"),
   )
   const compoundFile = CFB.read(bytes, { type: "array" })
   addAltiumBinarySection({
     compoundFile,
     name: "EmbeddedFonts6",
-    recordCount: 1,
-    content: fontRecord({
-      compressedBytes:
-        options.compressedBytes ??
-        zlibSync(new Uint8Array(font.toArrayBuffer())),
-      bold: options.bold,
-      italic: options.italic,
-      familyName: options.familyName,
-    }),
+    recordCount:
+      options.expectedFontCount ?? (options.prefixFontRecords?.length ?? 0) + 1,
+    content: Buffer.concat([
+      ...(options.prefixFontRecords ?? []),
+      fontRecord({
+        compressedBytes:
+          options.compressedBytes ??
+          zlibSync(new Uint8Array(font.toArrayBuffer())),
+        bold: options.bold,
+        italic: options.italic,
+        familyName: options.familyName,
+      }),
+      options.trailingFontBytes ?? new Uint8Array(),
+    ]),
   })
   return parseAltiumBinaryPcbDoc(writeAltiumCompoundFile(compoundFile))
 }

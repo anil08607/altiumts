@@ -212,7 +212,11 @@ available, including custom logo fonts. Glyphs are emitted as SVG paths with
 an `aria-label`, so browsers and SVG rasterizers do not require installed
 fonts. Family/full name and bold/italic style must match. Missing, damaged,
 unsupported fonts or missing glyphs retain the system-font fallback; stroke
-text keeps its existing rendering. Font outlines do not resolve unrelated
+text keeps its existing rendering. Invalid optional font metadata preserves
+safely parsed fonts without rewriting the source bytes. Glyph expansion falls
+back to text above 4,096 UTF-16 code units, 32,768 outline commands, or 512 KiB
+of path output per text record. These limits are not a process-wide memory
+budget for the underlying font parser. Font outlines do not resolve unrelated
 PCB text placement, justification, or knockout differences.
 
 Binary schematic rendering includes embedded images, Altium font-table sizes,
