@@ -51,21 +51,29 @@ export function serializeAltiumPcbToSvg(
   const layerAliases = getAltiumPcbLayerAliasMap(
     getAltiumPcbDocumentLayerStackEntries(document),
   )
-  const layerRecords = [
+  const visibleRecords = [
     ...document.records,
     ...getPcbSolderMaskRecords(document, options.layers),
-  ].filter((record) =>
-    recordAppliesToLayers({
-      layerAliases,
-      record,
-      requestedLayers: options.layers,
-    }),
-  )
+  ]
+    .filter((record) =>
+      recordAppliesToLayers({
+        layerAliases,
+        record,
+        requestedLayers: options.layers,
+      }),
+    )
+    .filter((record) => recordAppliesToReferences(document, record, options))
+    .filter(
+      (record) =>
+        (options.showText !== false || record.recordKind !== "Text") &&
+        (options.showHidden === true ||
+          isVisibleComponentText(document, record)),
+    )
   const bounds = options.viewBox
     ? pcbViewBoxToBounds(options.viewBox)
     : options.fitToContent
-      ? getPcbContentBounds(document, layerRecords)
-      : getPcbDocumentBounds(document, layerRecords)
+      ? getPcbContentBounds(document, visibleRecords)
+      : getPcbDocumentBounds(document, visibleRecords)
   const viewport = createSvgViewport(bounds, {
     ...options,
     margin: options.margin ?? (options.viewBox ? 0 : undefined),
@@ -123,18 +131,11 @@ export function serializeAltiumPcbToSvg(
     document,
     layerDrawingOrder: options.layerDrawingOrder,
     viewSide: options.viewSide,
-    records: layerRecords
-      .filter((record) => recordAppliesToReferences(document, record, options))
-      .filter(
-        (record) =>
-          options.showHidden === true ||
-          isVisibleComponentText(document, record),
-      )
-      .filter((record) => {
-        if (!options.viewBox) return true
-        const recordBounds = getPcbRecordBounds(record, options.layers)
-        return !recordBounds || boundsIntersect(recordBounds, bounds)
-      }),
+    records: visibleRecords.filter((record) => {
+      if (!options.viewBox) return true
+      const recordBounds = getPcbRecordBounds(record, options.layers)
+      return !recordBounds || boundsIntersect(recordBounds, bounds)
+    }),
   })
 
   for (const record of records) {

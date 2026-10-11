@@ -181,7 +181,7 @@ export function renderProjectDocument({
       project: entry.project,
       height: 1000,
       layers: view.layers,
-      viewSide: "top",
+      viewSide: view.id === "overview" ? "top" : undefined,
       title,
       width: 1600,
     })
